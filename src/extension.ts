@@ -87,9 +87,20 @@ export function activate(context: vscode.ExtensionContext): void {
     async (msg: WebviewToExtensionMessage) => {
       switch (msg.command) {
         case 'sendMessage': {
+          // Update model/mode from message if provided
+          if (msg.model !== undefined) {
+            acpClient.currentModel = msg.model || null;
+          }
+          if (msg.mode !== undefined) {
+            acpClient.currentMode = msg.mode || null;
+          }
           // Resolve file contents for any attached context
           const resolvedFiles = await Promise.all(
             msg.contextFiles.map(async (cf) => {
+              if (cf.type === 'image') {
+                // Images already have base64 content, no need to resolve
+                return cf;
+              }
               const resolved = await contextProvider.resolveByPath(cf.filePath);
               return resolved ?? cf;
             }),
@@ -136,6 +147,88 @@ export function activate(context: vscode.ExtensionContext): void {
         case 'browseRegistry':
           await vscode.commands.executeCommand('acpComposer.browseRegistry');
           break;
+
+        case 'setModel':
+          acpClient.currentModel = msg.modelId || null;
+          break;
+
+        case 'setMode':
+          acpClient.currentMode = msg.mode || null;
+          composerProvider.notifyModeChanged(msg.mode);
+          break;
+
+        case 'requestAttachFile': {
+          const uris = await vscode.window.showOpenDialog({
+            canSelectMany: true,
+            canSelectFolders: false,
+            canSelectFiles: true,
+            openLabel: 'Attach',
+            title: 'Attach files to chat',
+          });
+          if (uris) {
+            for (const uri of uris) {
+              const resolved = await contextProvider.resolveByPath(uri.fsPath);
+              if (resolved) {
+                composerProvider.addContextFile(resolved);
+              } else {
+                composerProvider.addContextFile({
+                  filePath: uri.fsPath,
+                  label: path.basename(uri.fsPath),
+                  type: 'file',
+                });
+              }
+            }
+          }
+          break;
+        }
+
+        case 'requestAttachDirectory': {
+          const uris = await vscode.window.showOpenDialog({
+            canSelectMany: false,
+            canSelectFolders: true,
+            canSelectFiles: false,
+            openLabel: 'Attach Directory',
+            title: 'Attach a directory to chat',
+          });
+          if (uris && uris.length > 0) {
+            const dirUri = uris[0];
+            // Walk the directory and attach all files (up to a reasonable limit)
+            const files = await vscode.workspace.findFiles(
+              new vscode.RelativePattern(dirUri, '**/*'),
+              '**/node_modules/**',
+              50,
+            );
+            if (files.length === 0) {
+              composerProvider.addContextFile({
+                filePath: dirUri.fsPath,
+                label: path.basename(dirUri.fsPath) + '/',
+                type: 'directory',
+              });
+            } else {
+              for (const f of files) {
+                const resolved = await contextProvider.resolveByPath(f.fsPath);
+                if (resolved) {
+                  composerProvider.addContextFile({
+                    ...resolved,
+                    type: 'file',
+                  });
+                }
+              }
+            }
+          }
+          break;
+        }
+
+        case 'attachImageBase64': {
+          composerProvider.addContextFile({
+            filePath: msg.label,
+            label: msg.label,
+            type: 'image',
+            content: `data:${msg.mimeType};base64,${msg.data}`,
+            mimeType: msg.mimeType,
+          });
+          break;
+        }
       }
     },
   );

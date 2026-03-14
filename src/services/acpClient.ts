@@ -11,6 +11,20 @@ import {
 
 type ConnectionType = 'websocket' | 'stdio';
 
+// Output channel for ACP debug logging (shared across instances)
+let _outputChannel: vscode.OutputChannel | null = null;
+function getOutputChannel(): vscode.OutputChannel {
+  if (!_outputChannel) {
+    _outputChannel = vscode.window.createOutputChannel('ACP Composer');
+  }
+  return _outputChannel;
+}
+function log(msg: string): void {
+  const ts = new Date().toISOString().substring(11, 23);
+  getOutputChannel().appendLine(`[${ts}] ${msg}`);
+  console.log('[ACP]', msg);
+}
+
 /**
  * AcpClient manages the connection to an ACP server via WebSocket or stdio,
  * handles JSON-RPC framing, and exposes an event-driven API for
@@ -26,6 +40,9 @@ export class AcpClient implements vscode.Disposable {
   >();
   private _sessionId: string | null = null;
   private _initialized = false;
+  // Current model/mode set by the user
+  public currentModel: string | null = null;
+  public currentMode: string | null = null;
 
   private readonly _onMessage = new vscode.EventEmitter<AcpStreamMessage>();
   public readonly onMessage: vscode.Event<AcpStreamMessage> =
@@ -90,6 +107,7 @@ export class AcpClient implements vscode.Disposable {
   }
 
   disconnect(): void {
+    log('Disconnecting...');
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -166,6 +184,7 @@ export class AcpClient implements vscode.Disposable {
       // Store process reference for sending messages
       (this as unknown as { _proc: typeof proc })._proc = proc;
 
+      log(`Process started (pid=${proc.pid}), connection established`);
       this._connected = true;
       this._onConnectionChange.fire(true);
     } catch (err: unknown) {
@@ -183,43 +202,51 @@ export class AcpClient implements vscode.Disposable {
     text: string,
     contextFiles: ContextFile[] = [],
   ): Promise<void> {
-    if (this._initialized) {
-      // Use proper ACP protocol format
-      const prompt: Record<string, unknown>[] = [{ type: 'text', text }];
-      if (contextFiles.length > 0) {
-        for (const f of contextFiles) {
-          prompt.push({
-            type: 'resource',
-            resource: {
-              uri: `file://${f.filePath}`,
-              text: f.content ?? '',
-              mimeType: f.languageId ? `text/${f.languageId}` : 'text/plain',
-            },
-          });
-        }
-      }
+    // Build ACP content blocks for the prompt
+    const prompt: Record<string, unknown>[] = [{ type: 'text', text }];
 
-      const promptParams: Record<string, unknown> = { prompt };
-      if (this._sessionId) {
-        promptParams.sessionId = this._sessionId;
+    for (const f of contextFiles) {
+      if (f.type === 'image') {
+        // Image attachment as base64 data URI
+        prompt.push({
+          type: 'image_url',
+          image_url: {
+            url: f.content ?? '',
+          },
+        });
+      } else {
+        prompt.push({
+          type: 'resource',
+          resource: {
+            uri: `file://${f.filePath}`,
+            text: f.content ?? '',
+            mimeType: f.languageId ? `text/${f.languageId}` : 'text/plain',
+          },
+        });
       }
-
-      // session/prompt is a request in ACP (response comes via session/update notifications)
-      this.sendRequest('session/prompt', promptParams).catch(() => {
-        // Streaming responses arrive via session/update notifications
-      });
-    } else {
-      // Legacy format for non-ACP agents
-      const params: Record<string, unknown> = { text };
-      if (contextFiles.length > 0) {
-        params.context = contextFiles.map((f) => ({
-          filePath: f.filePath,
-          content: f.content ?? '',
-          languageId: f.languageId,
-        }));
-      }
-      this.sendNotification('acp/prompt', params);
     }
+
+    const promptParams: Record<string, unknown> = { prompt };
+    if (this._sessionId) {
+      promptParams.sessionId = this._sessionId;
+    }
+    // Pass model/mode as metadata (agents that support it will use it)
+    if (this.currentModel) {
+      promptParams.model = this.currentModel;
+    }
+    if (this.currentMode) {
+      promptParams.mode = this.currentMode;
+    }
+
+    log(
+      `Sending session/prompt (sessionId=${this._sessionId ?? 'none'}, model=${this.currentModel ?? 'default'}, mode=${this.currentMode ?? 'default'})`,
+    );
+
+    // Always use session/prompt — standard ACP protocol.
+    // Even if initializeAcp() failed, many agents accept session/prompt directly.
+    this.sendRequest('session/prompt', promptParams).catch((err) => {
+      log(`session/prompt request failed: ${err?.message ?? err}`);
+    });
   }
 
   sendToolResult(result: AcpToolResult): void {
@@ -260,6 +287,7 @@ export class AcpClient implements vscode.Disposable {
   // -----------------------------------------------------------------------
 
   private handleRawMessage(raw: string): void {
+    log(`← ${raw.substring(0, 300)}`);
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw);
@@ -308,16 +336,33 @@ export class AcpClient implements vscode.Disposable {
       const method = msg.method as string;
       const params = msg.params as Record<string, unknown>;
 
-      // ACP session/update notification (standard protocol)
-      if (
-        (method === 'session/update' || method === 'sessionUpdate') &&
-        params?.update
-      ) {
-        const update = params.update as Record<string, unknown>;
-        const streamMsg = this.mapAcpSessionUpdate(update);
-        if (streamMsg) {
-          this._onMessage.fire(streamMsg);
-          return;
+      // ACP session/update notification — handle all known formats
+      if (method === 'session/update' || method === 'sessionUpdate') {
+        let update: Record<string, unknown> | null = null;
+
+        if (params?.update && typeof params.update === 'object') {
+          // Standard ACP: { params: { sessionId, update: { sessionUpdate, content } } }
+          update = params.update as Record<string, unknown>;
+        } else if (
+          params?.sessionUpdate &&
+          typeof params.sessionUpdate === 'string'
+        ) {
+          // Flat variant: { params: { sessionId, sessionUpdate, content } }
+          update = params as Record<string, unknown>;
+        } else if (params && typeof params === 'object') {
+          // Try treating entire params as the update
+          update = params;
+        }
+
+        if (update) {
+          log(
+            `session/update: type=${update.sessionUpdate ?? '?'} content=${JSON.stringify(update.content ?? '').substring(0, 80)}`,
+          );
+          const streamMsg = this.mapAcpSessionUpdate(update);
+          if (streamMsg) {
+            this._onMessage.fire(streamMsg);
+            return;
+          }
         }
       }
 
@@ -326,13 +371,18 @@ export class AcpClient implements vscode.Disposable {
         this._onMessage.fire(params as unknown as AcpStreamMessage);
         return;
       }
+
+      // Log all unhandled notifications (for diagnostics)
+      if (method !== 'initialized' && method !== '$/cancelRequest') {
+        log(
+          `Unhandled notification: ${method} params=${JSON.stringify(params).substring(0, 200)}`,
+        );
+      }
+      return;
     }
 
     // Log unhandled messages for debugging
-    console.log(
-      '[ACP] Unhandled message:',
-      JSON.stringify(msg).substring(0, 500),
-    );
+    log(`Unhandled message: ${JSON.stringify(msg).substring(0, 300)}`);
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -370,36 +420,50 @@ export class AcpClient implements vscode.Disposable {
    * Sends initialize → initialized → session/create.
    */
   async initializeAcp(): Promise<void> {
+    log('Sending initialize request...');
     try {
-      await Promise.race([
+      const initResult = await Promise.race([
         this.sendRequest('initialize', {
           protocolVersion: '2025-07-09',
           clientInfo: { name: 'ACP Composer', version: '0.1.0' },
           capabilities: {},
         }),
         new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('timeout')), 5000),
+          setTimeout(() => reject(new Error('timeout')), 10000),
         ),
       ]);
+      log(
+        `initialize response: ${JSON.stringify(initResult).substring(0, 200)}`,
+      );
 
       this.sendNotification('initialized', {});
       this._initialized = true;
+      log('Initialized. Sending session/create...');
 
       // Create session
       try {
         const sessionResult = (await Promise.race([
           this.sendRequest('session/create', {}),
           new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error('timeout')), 5000),
+            setTimeout(
+              () => reject(new Error('session/create timeout')),
+              10000,
+            ),
           ),
         ])) as Record<string, unknown> | undefined;
 
         this._sessionId = (sessionResult?.sessionId as string) ?? null;
-      } catch {
+        log(`session/create response: sessionId=${this._sessionId}`);
+      } catch (sessionErr) {
+        log(
+          `session/create failed: ${sessionErr instanceof Error ? sessionErr.message : String(sessionErr)} — will send session/prompt without sessionId`,
+        );
         this._sessionId = null;
       }
-    } catch {
-      // Agent may not support ACP initialization — fall back to legacy mode
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log(`initialize failed (${msg}) — will attempt session/prompt directly`);
+      // Don't prevent prompt sending — sendPrompt always uses session/prompt now
       this._initialized = false;
       this._sessionId = null;
     }

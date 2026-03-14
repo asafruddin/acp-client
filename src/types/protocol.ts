@@ -7,6 +7,16 @@
 /** Execution policy configured by the user. */
 export type ExecutionPolicy = 'strict' | 'autonomous';
 
+/** Agent interaction mode. */
+export type ChatMode = 'default' | 'yolo' | 'plan' | 'auto';
+
+/** A selectable agent model. */
+export interface AgentModel {
+  id: string;
+  label: string;
+  description?: string;
+}
+
 // ---------------------------------------------------------------------------
 // JSON‑RPC envelope
 // ---------------------------------------------------------------------------
@@ -138,10 +148,14 @@ export interface ContextFile {
   filePath: string;
   /** Friendly label shown in the UI pill (e.g. "main.ts"). */
   label: string;
+  /** Attachment type. */
+  type?: 'file' | 'directory' | 'image';
   /** File contents (loaded lazily). */
   content?: string;
   /** Language identifier (e.g. "typescript"). */
   languageId?: string;
+  /** MIME type for images (e.g. "image/png"). */
+  mimeType?: string;
 }
 
 export interface WorkspaceFileEntry {
@@ -159,7 +173,13 @@ export interface WorkspaceFileEntry {
 
 /** Messages sent FROM the webview TO the extension host. */
 export type WebviewToExtensionMessage =
-  | { command: 'sendMessage'; text: string; contextFiles: ContextFile[] }
+  | {
+      command: 'sendMessage';
+      text: string;
+      contextFiles: ContextFile[];
+      model?: string;
+      mode?: string;
+    }
   | { command: 'approveToolCall'; callId: string }
   | { command: 'rejectToolCall'; callId: string }
   | { command: 'applyFileChange'; changeId: string }
@@ -168,16 +188,29 @@ export type WebviewToExtensionMessage =
   | { command: 'requestFileSearch'; query: string }
   | { command: 'ready' }
   | { command: 'connectQwenCode' }
-  | { command: 'browseRegistry' };
+  | { command: 'browseRegistry' }
+  | { command: 'setModel'; modelId: string }
+  | { command: 'setMode'; mode: ChatMode }
+  | { command: 'requestAttachFile' }
+  | { command: 'requestAttachDirectory' }
+  | {
+      command: 'attachImageBase64';
+      data: string;
+      mimeType: string;
+      label: string;
+    };
 
 /** Messages sent FROM the extension host TO the webview. */
 export type ExtensionToWebviewMessage =
   | { type: 'addMessage'; message: ChatMessage }
   | { type: 'streamChunk'; chunk: AcpStreamMessage }
-  | { type: 'updateConnectionStatus'; connected: boolean }
+  | { type: 'updateConnectionStatus'; connected: boolean; agentName?: string }
   | { type: 'fileSearchResults'; files: WorkspaceFileEntry[] }
   | { type: 'threadCleared' }
-  | { type: 'error'; message: string };
+  | { type: 'error'; message: string }
+  | { type: 'addContextFile'; file: ContextFile }
+  | { type: 'modelChanged'; modelId: string }
+  | { type: 'modeChanged'; mode: ChatMode };
 
 // ---------------------------------------------------------------------------
 // Diff / Apply model

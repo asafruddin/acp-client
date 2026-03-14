@@ -28,9 +28,9 @@ echo ""
 echo "🔨 Building and packaging extension..."
 pnpm run build
 
-# Package with vsce (ignore npm warnings from vsce internal dependency checks)
-# The vsix file is created successfully despite these warnings
-pnpm exec vsce package --out "$PROJECT_DIR/acp-composer-0.1.0.vsix" || true
+# Package with vsce using --no-dependencies to skip vsce's internal npm check
+# (the project uses pnpm, so npm's dependency resolution reports false errors)
+pnpm exec vsce package --no-dependencies --allow-missing-repository --out "$PROJECT_DIR/acp-composer-0.1.0.vsix"
 
 echo ""
 echo "📥 Installing extension to VS Code..."

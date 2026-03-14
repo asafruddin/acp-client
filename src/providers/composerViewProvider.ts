@@ -1,12 +1,14 @@
-import * as vscode from "vscode";
+import * as vscode from 'vscode';
 import {
   WebviewToExtensionMessage,
   ExtensionToWebviewMessage,
   ChatMessage,
   AcpStreamMessage,
   WorkspaceFileEntry,
-} from "../types/protocol";
-import { getNonce } from "../utils/nonce";
+  ContextFile,
+  ChatMode,
+} from '../types/protocol';
+import { getNonce } from '../utils/nonce';
 
 /**
  * ComposerViewProvider registers the sidebar webview that hosts the
@@ -14,7 +16,7 @@ import { getNonce } from "../utils/nonce";
  * (HTML/JS) and the extension host (services).
  */
 export class ComposerViewProvider implements vscode.WebviewViewProvider {
-  public static readonly viewType = "acpComposer.chatView";
+  public static readonly viewType = 'acpComposer.chatView';
 
   private view?: vscode.WebviewView;
 
@@ -58,27 +60,39 @@ export class ComposerViewProvider implements vscode.WebviewViewProvider {
   }
 
   addMessage(message: ChatMessage): void {
-    this.postMessage({ type: "addMessage", message });
+    this.postMessage({ type: 'addMessage', message });
   }
 
   streamChunk(chunk: AcpStreamMessage): void {
-    this.postMessage({ type: "streamChunk", chunk });
+    this.postMessage({ type: 'streamChunk', chunk });
   }
 
-  updateConnectionStatus(connected: boolean): void {
-    this.postMessage({ type: "updateConnectionStatus", connected });
+  updateConnectionStatus(connected: boolean, agentName?: string): void {
+    this.postMessage({ type: 'updateConnectionStatus', connected, agentName });
   }
 
   sendFileSearchResults(files: WorkspaceFileEntry[]): void {
-    this.postMessage({ type: "fileSearchResults", files });
+    this.postMessage({ type: 'fileSearchResults', files });
   }
 
   clearThread(): void {
-    this.postMessage({ type: "threadCleared" });
+    this.postMessage({ type: 'threadCleared' });
   }
 
   sendError(message: string): void {
-    this.postMessage({ type: "error", message });
+    this.postMessage({ type: 'error', message });
+  }
+
+  addContextFile(file: ContextFile): void {
+    this.postMessage({ type: 'addContextFile', file });
+  }
+
+  notifyModelChanged(modelId: string): void {
+    this.postMessage({ type: 'modelChanged', modelId });
+  }
+
+  notifyModeChanged(mode: ChatMode): void {
+    this.postMessage({ type: 'modeChanged', mode });
   }
 
   // -----------------------------------------------------------------------
@@ -96,11 +110,12 @@ export class ComposerViewProvider implements vscode.WebviewViewProvider {
   <meta http-equiv="Content-Security-Policy"
     content="default-src 'none';
              style-src ${webview.cspSource} 'unsafe-inline';
+             img-src data: ${webview.cspSource};
              script-src 'nonce-${nonce}';" />
   <title>ACP Composer</title>
   <style>
     /* ------------------------------------------------------------------ */
-    /* Base reset & VS Code theme integration                             */
+    /* Base reset & VS Code theme integration                              */
     /* ------------------------------------------------------------------ */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -122,60 +137,88 @@ export class ComposerViewProvider implements vscode.WebviewViewProvider {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 6px 12px;
+      padding: 5px 10px;
       font-size: 11px;
       color: var(--vscode-descriptionForeground);
       border-bottom: 1px solid var(--vscode-sideBar-border, var(--vscode-panel-border));
-      gap: 8px;
+      gap: 6px;
+      flex-shrink: 0;
     }
     .status-left {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      flex-shrink: 0;
-    }
-    #connectButtons {
-      display: flex;
-      gap: 6px;
-      flex-shrink: 0;
+      display: flex; align-items: center; gap: 5px; min-width: 0;
     }
     .status-dot {
-      width: 8px; height: 8px; border-radius: 50%;
+      width: 7px; height: 7px; border-radius: 50%;
       background: var(--vscode-testing-iconFailed, #f44);
       flex-shrink: 0;
     }
     .status-dot.connected { background: var(--vscode-testing-iconPassed, #4c4); }
+    #statusText { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #connectButtons { display: flex; gap: 5px; flex-shrink: 0; }
     .status-connect-btn {
       background: var(--vscode-button-background);
       color: var(--vscode-button-foreground);
-      border: none;
-      border-radius: 4px;
-      padding: 2px 8px;
-      font-size: 11px;
-      cursor: pointer;
-      margin-left: 6px;
+      border: none; border-radius: 3px;
+      padding: 2px 7px; font-size: 11px; cursor: pointer;
     }
     .status-connect-btn:hover { background: var(--vscode-button-hoverBackground); }
+
+    /* ------------------------------------------------------------------ */
+    /* Mode selector bar                                                   */
+    /* ------------------------------------------------------------------ */
+    .mode-bar {
+      display: flex; align-items: center; gap: 4px;
+      padding: 4px 10px;
+      border-bottom: 1px solid var(--vscode-sideBar-border, var(--vscode-panel-border));
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+    .mode-label { font-size: 11px; color: var(--vscode-descriptionForeground); margin-right: 2px; }
+    .mode-pill {
+      padding: 2px 9px; border-radius: 10px; font-size: 11px; cursor: pointer;
+      border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+      background: transparent; color: var(--vscode-foreground);
+      transition: background 0.15s;
+    }
+    .mode-pill:hover { background: var(--vscode-list-hoverBackground); }
+    .mode-pill.active {
+      background: var(--vscode-button-background);
+      color: var(--vscode-button-foreground);
+      border-color: var(--vscode-button-background);
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Model selector                                                      */
+    /* ------------------------------------------------------------------ */
+    .model-bar {
+      display: flex; align-items: center; gap: 6px;
+      padding: 4px 10px;
+      border-bottom: 1px solid var(--vscode-sideBar-border, var(--vscode-panel-border));
+      flex-shrink: 0;
+    }
+    .model-bar label { font-size: 11px; color: var(--vscode-descriptionForeground); }
+    #modelInput {
+      flex: 1; min-width: 0;
+      background: var(--vscode-input-background);
+      color: var(--vscode-input-foreground);
+      border: 1px solid var(--vscode-input-border, var(--vscode-widget-border));
+      border-radius: 3px;
+      padding: 2px 6px; font-size: 11px;
+      font-family: var(--vscode-font-family);
+    }
+    #modelInput:focus { outline: none; border-color: var(--vscode-focusBorder); }
+    #modelInput::placeholder { color: var(--vscode-input-placeholderForeground); }
 
     /* ------------------------------------------------------------------ */
     /* Messages area                                                       */
     /* ------------------------------------------------------------------ */
     .messages {
-      flex: 1;
-      overflow-y: auto;
-      padding: 12px;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
+      flex: 1; overflow-y: auto;
+      padding: 10px; display: flex; flex-direction: column; gap: 10px;
     }
-
     .message {
-      max-width: 100%;
-      padding: 10px 14px;
-      border-radius: 8px;
-      line-height: 1.5;
-      word-wrap: break-word;
-      white-space: pre-wrap;
+      max-width: 100%; padding: 9px 13px; border-radius: 8px;
+      line-height: 1.55; word-wrap: break-word;
     }
     .message.user {
       align-self: flex-end;
@@ -184,236 +227,160 @@ export class ComposerViewProvider implements vscode.WebviewViewProvider {
       border-radius: 8px 8px 2px 8px;
     }
     .message.assistant {
-      align-self: flex-start;
+      align-self: flex-start; width: 100%;
       background: var(--vscode-editor-background);
       border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
       border-radius: 8px 8px 8px 2px;
     }
 
-    /* Context pills */
-    .context-pills {
-      display: flex; flex-wrap: wrap; gap: 4px;
-      margin-bottom: 6px;
+    /* Markdown-style rendering */
+    .stream-text pre {
+      background: var(--vscode-textCodeBlock-background, var(--vscode-editor-background));
+      border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+      border-radius: 4px; padding: 8px 10px; margin: 6px 0;
+      overflow-x: auto; font-family: var(--vscode-editor-font-family);
+      font-size: 12px; white-space: pre;
     }
-    .context-pill {
-      display: inline-flex; align-items: center; gap: 4px;
-      padding: 2px 8px;
-      border-radius: 12px;
-      font-size: 11px;
-      background: var(--vscode-badge-background);
-      color: var(--vscode-badge-foreground);
+    .stream-text code {
+      font-family: var(--vscode-editor-font-family); font-size: 12px;
+      background: var(--vscode-textCodeBlock-background, rgba(127,127,127,0.1));
+      padding: 1px 4px; border-radius: 3px;
     }
-    .context-pill .remove {
-      cursor: pointer; opacity: 0.7;
-    }
-    .context-pill .remove:hover { opacity: 1; }
+    .stream-text p { margin: 4px 0; }
+    .stream-text ul, .stream-text ol { padding-left: 18px; margin: 4px 0; }
+    .stream-text li { margin: 2px 0; }
 
-    /* Thought chain (collapsible) */
-    .thought-chain {
-      font-size: 12px;
-      color: var(--vscode-descriptionForeground);
-      margin-bottom: 6px;
+    /* Context pills (in message & input) */
+    .context-pills { display: flex; flex-wrap: wrap; gap: 3px; margin-bottom: 5px; }
+    .context-pill {
+      display: inline-flex; align-items: center; gap: 3px;
+      padding: 2px 7px; border-radius: 12px; font-size: 11px;
+      background: var(--vscode-badge-background);
+      color: var(--vscode-badge-foreground); max-width: 180px;
     }
-    .thought-toggle {
-      cursor: pointer;
-      user-select: none;
-      display: flex; align-items: center; gap: 4px;
-      font-weight: 500;
-      margin-bottom: 4px;
+    .context-pill .pill-icon { flex-shrink: 0; }
+    .context-pill .pill-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .context-pill .remove { cursor: pointer; opacity: 0.7; flex-shrink: 0; }
+    .context-pill .remove:hover { opacity: 1; }
+    .context-pill.image-pill img {
+      width: 20px; height: 20px; object-fit: cover; border-radius: 2px;
     }
-    .thought-content { padding-left: 16px; }
+
+    /* Thought chain */
+    .thought-chain { font-size: 12px; color: var(--vscode-descriptionForeground); margin-bottom: 5px; }
+    .thought-toggle { cursor: pointer; user-select: none; display: flex; align-items: center; gap: 4px; font-weight: 500; margin-bottom: 4px; }
+    .thought-content { padding-left: 14px; }
     .thought-content.collapsed { display: none; }
 
-    /* Action card (tool calls) */
+    /* Action card */
     .action-card {
       border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
-      border-radius: 6px;
-      padding: 10px;
-      margin: 6px 0;
+      border-radius: 5px; padding: 8px; margin: 5px 0;
       background: var(--vscode-editor-background);
     }
-    .action-card .action-header {
-      font-weight: 600;
-      margin-bottom: 6px;
-      display: flex; align-items: center; gap: 6px;
-    }
+    .action-card .action-header { font-weight: 600; margin-bottom: 5px; display: flex; align-items: center; gap: 5px; }
     .action-card .action-params {
-      font-size: 12px;
-      color: var(--vscode-descriptionForeground);
-      font-family: var(--vscode-editor-font-family);
-      white-space: pre-wrap;
-      margin-bottom: 8px;
+      font-size: 11px; color: var(--vscode-descriptionForeground);
+      font-family: var(--vscode-editor-font-family); white-space: pre-wrap; margin-bottom: 7px;
+      max-height: 100px; overflow-y: auto;
     }
-    .action-card .action-buttons {
-      display: flex; gap: 6px;
-    }
+    .action-card .action-buttons { display: flex; gap: 5px; }
 
-    /* Diff preview card */
+    /* Diff card */
     .diff-card {
       border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
-      border-radius: 6px;
-      padding: 10px;
-      margin: 6px 0;
+      border-radius: 5px; padding: 8px; margin: 5px 0;
       background: var(--vscode-editor-background);
     }
-    .diff-card .diff-header {
-      font-weight: 600;
-      display: flex; align-items: center; gap: 6px;
-      margin-bottom: 6px;
-    }
-    .diff-card .diff-file-path {
-      font-family: var(--vscode-editor-font-family);
-      font-size: 12px;
-      color: var(--vscode-descriptionForeground);
-      margin-bottom: 8px;
-    }
-    .diff-card .diff-buttons {
-      display: flex; gap: 6px;
-    }
+    .diff-card .diff-header { font-weight: 600; display: flex; align-items: center; gap: 5px; margin-bottom: 5px; }
+    .diff-card .diff-file-path { font-family: var(--vscode-editor-font-family); font-size: 11px; color: var(--vscode-descriptionForeground); margin-bottom: 7px; }
+    .diff-card .diff-buttons { display: flex; gap: 5px; }
 
-    /* Status / progress */
-    .status-update {
-      font-size: 12px;
-      color: var(--vscode-descriptionForeground);
-      font-style: italic;
-      padding: 4px 0;
-    }
-    .progress-bar-container {
-      height: 3px;
-      background: var(--vscode-progressBar-background, #333);
-      border-radius: 2px;
-      overflow: hidden;
-      margin-top: 4px;
-    }
-    .progress-bar-fill {
-      height: 100%;
-      background: var(--vscode-progressBar-background, var(--vscode-button-background));
-      transition: width 0.3s ease;
-    }
+    /* Status */
+    .status-update { font-size: 11px; color: var(--vscode-descriptionForeground); font-style: italic; padding: 3px 0; }
+    .progress-bar-container { height: 2px; background: var(--vscode-progressBar-background, #333); border-radius: 1px; overflow: hidden; margin-top: 3px; }
+    .progress-bar-fill { height: 100%; background: var(--vscode-button-background); transition: width 0.3s; }
 
     /* Buttons */
-    .btn {
-      padding: 4px 12px;
-      border: none;
-      border-radius: 4px;
-      font-size: 12px;
-      cursor: pointer;
-      font-family: var(--vscode-font-family);
-    }
-    .btn-primary {
-      background: var(--vscode-button-background);
-      color: var(--vscode-button-foreground);
-    }
+    .btn { padding: 3px 10px; border: none; border-radius: 3px; font-size: 11px; cursor: pointer; font-family: var(--vscode-font-family); }
+    .btn-primary { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
     .btn-primary:hover { background: var(--vscode-button-hoverBackground); }
-    .btn-secondary {
-      background: var(--vscode-button-secondaryBackground);
-      color: var(--vscode-button-secondaryForeground);
-    }
+    .btn-secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
     .btn-secondary:hover { background: var(--vscode-button-secondaryHoverBackground); }
 
     /* ------------------------------------------------------------------ */
     /* File search dropdown                                                */
     /* ------------------------------------------------------------------ */
     .file-search-dropdown {
-      position: absolute;
-      bottom: 100%;
-      left: 0; right: 0;
-      max-height: 200px;
-      overflow-y: auto;
+      position: absolute; bottom: 100%; left: 0; right: 0;
+      max-height: 180px; overflow-y: auto;
       background: var(--vscode-editorSuggestWidget-background, var(--vscode-editor-background));
       border: 1px solid var(--vscode-editorSuggestWidget-border, var(--vscode-widget-border));
-      border-radius: 6px 6px 0 0;
-      display: none;
-      z-index: 10;
+      border-radius: 5px 5px 0 0; display: none; z-index: 10;
     }
     .file-search-dropdown.visible { display: block; }
     .file-search-item {
-      padding: 6px 12px;
-      cursor: pointer;
-      font-size: 12px;
+      padding: 5px 10px; cursor: pointer; font-size: 11px;
       font-family: var(--vscode-editor-font-family);
-      display: flex; align-items: center; gap: 6px;
+      display: flex; align-items: center; gap: 5px;
     }
-    .file-search-item:hover,
-    .file-search-item.selected {
-      background: var(--vscode-list-hoverBackground);
-    }
+    .file-search-item:hover, .file-search-item.selected { background: var(--vscode-list-hoverBackground); }
 
     /* ------------------------------------------------------------------ */
     /* Input area                                                          */
     /* ------------------------------------------------------------------ */
     .input-area {
-      position: relative;
+      position: relative; flex-shrink: 0;
       border-top: 1px solid var(--vscode-sideBar-border, var(--vscode-panel-border));
-      padding: 10px 12px;
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
+      padding: 8px 10px; display: flex; flex-direction: column; gap: 5px;
     }
-    .input-row {
-      display: flex; gap: 6px; align-items: flex-end;
-    }
+    .input-row { display: flex; gap: 5px; align-items: flex-end; }
     .input-area textarea {
-      flex: 1;
-      resize: none;
+      flex: 1; resize: none;
       border: 1px solid var(--vscode-input-border, var(--vscode-widget-border));
-      background: var(--vscode-input-background);
-      color: var(--vscode-input-foreground);
-      padding: 8px 10px;
-      border-radius: 6px;
-      font-family: var(--vscode-font-family);
-      font-size: var(--vscode-font-size);
-      min-height: 38px;
-      max-height: 120px;
-      line-height: 1.4;
+      background: var(--vscode-input-background); color: var(--vscode-input-foreground);
+      padding: 6px 8px; border-radius: 5px;
+      font-family: var(--vscode-font-family); font-size: var(--vscode-font-size);
+      min-height: 36px; max-height: 120px; line-height: 1.4;
     }
-    .input-area textarea:focus {
-      outline: none;
-      border-color: var(--vscode-focusBorder);
-    }
-    .input-area textarea::placeholder {
-      color: var(--vscode-input-placeholderForeground);
-    }
+    .input-area textarea:focus { outline: none; border-color: var(--vscode-focusBorder); }
+    .input-area textarea::placeholder { color: var(--vscode-input-placeholderForeground); }
     .send-btn {
-      padding: 8px 14px;
-      border: none;
-      border-radius: 6px;
-      background: var(--vscode-button-background);
-      color: var(--vscode-button-foreground);
-      cursor: pointer;
-      font-size: 13px;
-      flex-shrink: 0;
-      height: 38px;
+      padding: 6px 12px; border: none; border-radius: 5px;
+      background: var(--vscode-button-background); color: var(--vscode-button-foreground);
+      cursor: pointer; font-size: 13px; flex-shrink: 0; height: 36px;
     }
     .send-btn:hover { background: var(--vscode-button-hoverBackground); }
-    .send-btn:disabled { opacity: 0.5; cursor: default; }
+    .send-btn:disabled { opacity: 0.45; cursor: default; }
+
+    /* Attachment toolbar */
+    .attach-bar {
+      display: flex; align-items: center; gap: 4px;
+    }
+    .attach-btn {
+      display: flex; align-items: center; justify-content: center;
+      width: 26px; height: 26px; border-radius: 4px; border: none;
+      background: transparent; color: var(--vscode-foreground);
+      cursor: pointer; opacity: 0.65; font-size: 14px;
+    }
+    .attach-btn:hover { background: var(--vscode-list-hoverBackground); opacity: 1; }
+    .attach-btn title { display: none; }
 
     /* ------------------------------------------------------------------ */
     /* Welcome screen                                                      */
     /* ------------------------------------------------------------------ */
     .welcome {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      flex: 1;
-      gap: 12px;
-      color: var(--vscode-descriptionForeground);
-      text-align: center;
-      padding: 24px;
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; flex: 1; gap: 10px;
+      color: var(--vscode-descriptionForeground); text-align: center; padding: 20px;
     }
-    .welcome h2 {
-      color: var(--vscode-foreground);
-      font-weight: 600;
-    }
-    .welcome p { max-width: 280px; line-height: 1.5; }
+    .welcome h2 { color: var(--vscode-foreground); font-weight: 600; font-size: 15px; }
+    .welcome p { max-width: 260px; line-height: 1.5; font-size: 12px; }
     .welcome kbd {
-      padding: 2px 6px;
-      border-radius: 3px;
+      padding: 1px 5px; border-radius: 3px;
       border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
       background: var(--vscode-editor-background);
-      font-family: var(--vscode-editor-font-family);
-      font-size: 11px;
+      font-family: var(--vscode-editor-font-family); font-size: 11px;
     }
   </style>
 </head>
@@ -426,15 +393,30 @@ export class ComposerViewProvider implements vscode.WebviewViewProvider {
     </div>
     <div id="connectButtons">
       <button id="browseRegistryBtn" class="status-connect-btn">Browse Registry</button>
-      <button id="connectQwenBtn" class="status-connect-btn">Connect Qwen Code</button>
+      <button id="connectQwenBtn" class="status-connect-btn">Qwen Code</button>
     </div>
+  </div>
+
+  <!-- Mode selector -->
+  <div class="mode-bar">
+    <span class="mode-label">Mode:</span>
+    <button class="mode-pill active" data-mode="default">Default</button>
+    <button class="mode-pill" data-mode="plan">Plan</button>
+    <button class="mode-pill" data-mode="yolo">Yolo</button>
+    <button class="mode-pill" data-mode="auto">Auto</button>
+  </div>
+
+  <!-- Model selector -->
+  <div class="model-bar">
+    <label for="modelInput">Model:</label>
+    <input id="modelInput" type="text" placeholder="e.g. gpt-4o, claude-3-5-sonnet (optional)" />
   </div>
 
   <!-- Messages -->
   <div id="messages" class="messages">
     <div id="welcome" class="welcome">
       <h2>ACP Composer</h2>
-      <p>Your agentic coding companion. Type a message or use <kbd>@</kbd> to tag files.</p>
+      <p>Connect to an agent, then type a message or use <kbd>@</kbd> to tag files. Attach images with 📎 or paste from clipboard.</p>
     </div>
   </div>
 
@@ -442,10 +424,15 @@ export class ComposerViewProvider implements vscode.WebviewViewProvider {
   <div class="input-area">
     <div id="fileSearchDropdown" class="file-search-dropdown"></div>
     <div id="inputContextPills" class="context-pills"></div>
+    <div class="attach-bar">
+      <button class="attach-btn" id="attachFileBtn" title="Attach file">📄</button>
+      <button class="attach-btn" id="attachDirBtn" title="Attach directory">📁</button>
+      <button class="attach-btn" id="attachImageBtn" title="Attach image">🖼️</button>
+    </div>
     <div class="input-row">
       <textarea
         id="promptInput"
-        placeholder="Ask anything... (@ to tag files)"
+        placeholder="Ask anything… (@ to tag files, paste image)"
         rows="1"
       ></textarea>
       <button id="sendBtn" class="send-btn" title="Send message">&#9654;</button>
@@ -457,6 +444,7 @@ export class ComposerViewProvider implements vscode.WebviewViewProvider {
     // Webview Script
     // ====================================================================
     (function () {
+      'use strict';
       const vscode = acquireVsCodeApi();
 
       // DOM refs
@@ -470,19 +458,70 @@ export class ComposerViewProvider implements vscode.WebviewViewProvider {
       const fileDropdown = document.getElementById('fileSearchDropdown');
       const connectQwenBtn = document.getElementById('connectQwenBtn');
       const browseRegistryBtn = document.getElementById('browseRegistryBtn');
+      const modelInput = document.getElementById('modelInput');
+      const attachFileBtn = document.getElementById('attachFileBtn');
+      const attachDirBtn = document.getElementById('attachDirBtn');
+      const attachImageBtn = document.getElementById('attachImageBtn');
 
-      // Connect button handlers
-      if (connectQwenBtn) {
-        connectQwenBtn.addEventListener('click', () => {
-          vscode.postMessage({ command: 'connectQwenCode' });
-        });
-      }
+      // ---- Connection button handlers ----
+      connectQwenBtn && connectQwenBtn.addEventListener('click', () => vscode.postMessage({ command: 'connectQwenCode' }));
+      browseRegistryBtn && browseRegistryBtn.addEventListener('click', () => vscode.postMessage({ command: 'browseRegistry' }));
 
-      if (browseRegistryBtn) {
-        browseRegistryBtn.addEventListener('click', () => {
-          vscode.postMessage({ command: 'browseRegistry' });
+      // ---- Mode selector ----
+      let currentMode = 'default';
+      document.querySelectorAll('.mode-pill').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.mode-pill').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          currentMode = btn.dataset.mode;
+          vscode.postMessage({ command: 'setMode', mode: currentMode });
         });
-      }
+      });
+
+      // ---- Model input (debounced) ----
+      let modelDebounce = null;
+      modelInput && modelInput.addEventListener('input', () => {
+        clearTimeout(modelDebounce);
+        modelDebounce = setTimeout(() => {
+          const val = modelInput.value.trim();
+          vscode.postMessage({ command: 'setModel', modelId: val });
+        }, 600);
+      });
+
+      // ---- Attachment buttons ----
+      attachFileBtn && attachFileBtn.addEventListener('click', () => vscode.postMessage({ command: 'requestAttachFile' }));
+      attachDirBtn && attachDirBtn.addEventListener('click', () => vscode.postMessage({ command: 'requestAttachDirectory' }));
+      attachImageBtn && attachImageBtn.addEventListener('click', () => vscode.postMessage({ command: 'requestAttachFile' }));
+
+      // ---- Image paste from clipboard ----
+      document.addEventListener('paste', (e) => {
+        const items = e.clipboardData && e.clipboardData.items;
+        if (!items) return;
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i];
+          if (item.type.startsWith('image/')) {
+            e.preventDefault();
+            const blob = item.getAsFile();
+            if (!blob) continue;
+            const mimeType = item.type;
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+              const dataUrl = ev.target.result;
+              const label = 'pasted-image-' + Date.now() + '.png';
+              // Add as a context file directly in the webview
+              contextFiles.push({
+                filePath: label,
+                label,
+                type: 'image',
+                content: dataUrl,
+                mimeType,
+              });
+              renderPills();
+            };
+            reader.readAsDataURL(blob);
+          }
+        }
+      });
 
       // State
       let contextFiles = [];
@@ -498,13 +537,16 @@ export class ComposerViewProvider implements vscode.WebviewViewProvider {
         const text = promptInput.value.trim();
         if (!text && contextFiles.length === 0) return;
 
+        const modelVal = modelInput ? modelInput.value.trim() : '';
         vscode.postMessage({
           command: 'sendMessage',
           text,
-          contextFiles: contextFiles,
+          contextFiles: contextFiles.slice(),
+          model: modelVal || undefined,
+          mode: currentMode !== 'default' ? currentMode : undefined,
         });
 
-        appendMessage('user', text, contextFiles);
+        appendMessage('user', text, contextFiles.slice());
         promptInput.value = '';
         contextFiles = [];
         renderPills();
@@ -515,33 +557,12 @@ export class ComposerViewProvider implements vscode.WebviewViewProvider {
       sendBtn.addEventListener('click', sendMessage);
       promptInput.addEventListener('keydown', (e) => {
         if (fileDropdown.classList.contains('visible')) {
-          if (e.key === 'ArrowDown') {
-            e.preventDefault();
-            selectedSearchIdx = Math.min(selectedSearchIdx + 1, searchResults.length - 1);
-            highlightSearchItem();
-            return;
-          }
-          if (e.key === 'ArrowUp') {
-            e.preventDefault();
-            selectedSearchIdx = Math.max(selectedSearchIdx - 1, 0);
-            highlightSearchItem();
-            return;
-          }
-          if (e.key === 'Enter' && selectedSearchIdx >= 0) {
-            e.preventDefault();
-            selectSearchItem(searchResults[selectedSearchIdx]);
-            return;
-          }
-          if (e.key === 'Escape') {
-            e.preventDefault();
-            hideFileSearch();
-            return;
-          }
+          if (e.key === 'ArrowDown') { e.preventDefault(); selectedSearchIdx = Math.min(selectedSearchIdx + 1, searchResults.length - 1); highlightSearchItem(); return; }
+          if (e.key === 'ArrowUp') { e.preventDefault(); selectedSearchIdx = Math.max(selectedSearchIdx - 1, 0); highlightSearchItem(); return; }
+          if (e.key === 'Enter' && selectedSearchIdx >= 0) { e.preventDefault(); selectSearchItem(searchResults[selectedSearchIdx]); return; }
+          if (e.key === 'Escape') { e.preventDefault(); hideFileSearch(); return; }
         }
-        if (e.key === 'Enter' && !e.shiftKey) {
-          e.preventDefault();
-          sendMessage();
-        }
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
       });
 
       // ----------------------------------------------------------------
@@ -551,12 +572,9 @@ export class ComposerViewProvider implements vscode.WebviewViewProvider {
         autoResizeInput();
         const val = promptInput.value;
         const atIdx = val.lastIndexOf('@');
-        if (atIdx >= 0) {
-          const query = val.slice(atIdx + 1);
-          if (!query.includes(' ')) {
-            vscode.postMessage({ command: 'requestFileSearch', query });
-            return;
-          }
+        if (atIdx >= 0 && !val.slice(atIdx + 1).includes(' ')) {
+          vscode.postMessage({ command: 'requestFileSearch', query: val.slice(atIdx + 1) });
+          return;
         }
         hideFileSearch();
       });
@@ -565,10 +583,7 @@ export class ComposerViewProvider implements vscode.WebviewViewProvider {
         searchResults = files;
         selectedSearchIdx = files.length > 0 ? 0 : -1;
         fileDropdown.innerHTML = '';
-        if (files.length === 0) {
-          hideFileSearch();
-          return;
-        }
+        if (files.length === 0) { hideFileSearch(); return; }
         files.forEach((f, i) => {
           const item = document.createElement('div');
           item.className = 'file-search-item' + (i === 0 ? ' selected' : '');
@@ -579,28 +594,17 @@ export class ComposerViewProvider implements vscode.WebviewViewProvider {
         fileDropdown.classList.add('visible');
       }
 
-      function hideFileSearch() {
-        fileDropdown.classList.remove('visible');
-        searchResults = [];
-        selectedSearchIdx = -1;
-      }
+      function hideFileSearch() { fileDropdown.classList.remove('visible'); searchResults = []; selectedSearchIdx = -1; }
 
       function highlightSearchItem() {
-        const items = fileDropdown.querySelectorAll('.file-search-item');
-        items.forEach((it, i) => it.classList.toggle('selected', i === selectedSearchIdx));
+        fileDropdown.querySelectorAll('.file-search-item').forEach((it, i) => it.classList.toggle('selected', i === selectedSearchIdx));
       }
 
       function selectSearchItem(file) {
         const val = promptInput.value;
         const atIdx = val.lastIndexOf('@');
-        if (atIdx >= 0) {
-          promptInput.value = val.slice(0, atIdx);
-        }
-        contextFiles.push({
-          filePath: file.absolutePath,
-          label: file.relativePath,
-          languageId: file.languageId,
-        });
+        if (atIdx >= 0) promptInput.value = val.slice(0, atIdx);
+        contextFiles.push({ filePath: file.absolutePath, label: file.relativePath, type: 'file', languageId: file.languageId });
         renderPills();
         hideFileSearch();
         promptInput.focus();
@@ -613,9 +617,20 @@ export class ComposerViewProvider implements vscode.WebviewViewProvider {
         pillsContainer.innerHTML = '';
         contextFiles.forEach((f, idx) => {
           const pill = document.createElement('span');
-          pill.className = 'context-pill';
-          pill.innerHTML = '@' + escapeHtml(f.label)
-            + ' <span class="remove" data-idx="' + idx + '">&times;</span>';
+          pill.className = 'context-pill' + (f.type === 'image' ? ' image-pill' : '');
+
+          let icon = '';
+          if (f.type === 'image') {
+            icon = '<img src="' + escapeAttr(f.content || '') + '" />';
+          } else if (f.type === 'directory') {
+            icon = '<span class="pill-icon">📁</span>';
+          } else {
+            icon = '<span class="pill-icon">📄</span>';
+          }
+
+          pill.innerHTML = icon
+            + '<span class="pill-label">' + escapeHtml(f.label) + '</span>'
+            + '<span class="remove" data-idx="' + idx + '">&times;</span>';
           pill.querySelector('.remove').addEventListener('click', () => {
             contextFiles.splice(idx, 1);
             renderPills();
@@ -637,15 +652,19 @@ export class ComposerViewProvider implements vscode.WebviewViewProvider {
           pills.className = 'context-pills';
           ctxFiles.forEach((f) => {
             const pill = document.createElement('span');
-            pill.className = 'context-pill';
-            pill.textContent = '@' + f.label;
+            pill.className = 'context-pill' + (f.type === 'image' ? ' image-pill' : '');
+            if (f.type === 'image') {
+              pill.innerHTML = '<img src="' + escapeAttr(f.content || '') + '" /><span class="pill-label">' + escapeHtml(f.label) + '</span>';
+            } else {
+              pill.innerHTML = (f.type === 'directory' ? '📁' : '📄') + ' <span class="pill-label">' + escapeHtml(f.label) + '</span>';
+            }
             pills.appendChild(pill);
           });
           el.appendChild(pills);
         }
 
         const textNode = document.createElement('div');
-        textNode.innerHTML = escapeHtml(content);
+        textNode.innerHTML = renderMarkdown(content);
         el.appendChild(textNode);
         messagesEl.appendChild(el);
         scrollToBottom();
@@ -665,27 +684,15 @@ export class ComposerViewProvider implements vscode.WebviewViewProvider {
 
       function appendStreamChunk(chunk) {
         if (!currentStreamEl) appendStreamStart();
-
         switch (chunk.type) {
           case 'text':
             appendTextToStream(chunk.content);
-            if (chunk.done) {
-              isStreaming = false;
-              currentStreamEl = null;
-            }
+            if (chunk.done) { isStreaming = false; currentStreamEl = null; }
             break;
-          case 'thought':
-            appendThought(chunk.content);
-            break;
-          case 'call_tool':
-            appendActionCard(chunk);
-            break;
-          case 'file_change':
-            appendDiffCard(chunk);
-            break;
-          case 'status':
-            appendStatus(chunk);
-            break;
+          case 'thought': appendThought(chunk.content); break;
+          case 'call_tool': appendActionCard(chunk); break;
+          case 'file_change': appendDiffCard(chunk); break;
+          case 'status': appendStatus(chunk); break;
         }
         scrollToBottom();
       }
@@ -698,7 +705,9 @@ export class ComposerViewProvider implements vscode.WebviewViewProvider {
           textEl.className = 'stream-text';
           currentStreamEl.appendChild(textEl);
         }
-        textEl.innerHTML += escapeHtml(text);
+        // Accumulate raw text and re-render as markdown
+        textEl.dataset.raw = (textEl.dataset.raw || '') + text;
+        textEl.innerHTML = renderMarkdown(textEl.dataset.raw);
       }
 
       function appendThought(content) {
@@ -711,11 +720,10 @@ export class ComposerViewProvider implements vscode.WebviewViewProvider {
           toggle.className = 'thought-toggle';
           toggle.innerHTML = '&#9662; Thoughts';
           const contentEl = document.createElement('div');
-          contentEl.className = 'thought-content';
+          contentEl.className = 'thought-content collapsed';
           toggle.addEventListener('click', () => {
             contentEl.classList.toggle('collapsed');
-            toggle.innerHTML = contentEl.classList.contains('collapsed')
-              ? '&#9656; Thoughts' : '&#9662; Thoughts';
+            toggle.innerHTML = contentEl.classList.contains('collapsed') ? '&#9656; Thoughts' : '&#9662; Thoughts';
           });
           chain.appendChild(toggle);
           chain.appendChild(contentEl);
@@ -735,8 +743,8 @@ export class ComposerViewProvider implements vscode.WebviewViewProvider {
           '<div class="action-header">&#9881; ' + escapeHtml(toolCall.displayName || toolCall.name) + '</div>'
           + '<div class="action-params">' + escapeHtml(JSON.stringify(toolCall.parameters, null, 2)) + '</div>'
           + '<div class="action-buttons">'
-          + '  <button class="btn btn-primary" data-action="approve" data-id="' + toolCall.id + '">Allow</button>'
-          + '  <button class="btn btn-secondary" data-action="reject" data-id="' + toolCall.id + '">Deny</button>'
+          + '  <button class="btn btn-primary" data-action="approve" data-id="' + escapeAttr(toolCall.id) + '">Allow</button>'
+          + '  <button class="btn btn-secondary" data-action="reject" data-id="' + escapeAttr(toolCall.id) + '">Deny</button>'
           + '</div>';
         card.querySelector('[data-action="approve"]').addEventListener('click', () => {
           vscode.postMessage({ command: 'approveToolCall', callId: toolCall.id });
@@ -756,10 +764,10 @@ export class ComposerViewProvider implements vscode.WebviewViewProvider {
         card.innerHTML =
           '<div class="diff-header">&#128196; File Change</div>'
           + '<div class="diff-file-path">' + escapeHtml(change.filePath) + '</div>'
-          + (change.description ? '<div style="font-size:12px;margin-bottom:8px">' + escapeHtml(change.description) + '</div>' : '')
+          + (change.description ? '<div style="font-size:11px;margin-bottom:7px">' + escapeHtml(change.description) + '</div>' : '')
           + '<div class="diff-buttons">'
-          + '  <button class="btn btn-primary" data-action="apply" data-id="' + change.id + '">Apply</button>'
-          + '  <button class="btn btn-secondary" data-action="reject" data-id="' + change.id + '">Reject</button>'
+          + '  <button class="btn btn-primary" data-action="apply" data-id="' + escapeAttr(change.id) + '">Apply</button>'
+          + '  <button class="btn btn-secondary" data-action="reject" data-id="' + escapeAttr(change.id) + '">Reject</button>'
           + '</div>';
         card.querySelector('[data-action="apply"]').addEventListener('click', () => {
           vscode.postMessage({ command: 'applyFileChange', changeId: change.id });
@@ -794,24 +802,68 @@ export class ComposerViewProvider implements vscode.WebviewViewProvider {
       }
 
       // ----------------------------------------------------------------
+      // Simple Markdown renderer
+      // ----------------------------------------------------------------
+      function renderMarkdown(text) {
+        if (!text) return '';
+        let html = '';
+        const lines = text.split('\\n');
+        let inCode = false;
+        let codeLang = '';
+        let codeLines = [];
+
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          if (!inCode && line.startsWith('\`\`\`')) {
+            inCode = true;
+            codeLang = line.slice(3).trim();
+            codeLines = [];
+          } else if (inCode && line.startsWith('\`\`\`')) {
+            inCode = false;
+            html += '<pre><code class="lang-' + escapeHtml(codeLang) + '">' + escapeHtml(codeLines.join('\\n')) + '</code></pre>';
+          } else if (inCode) {
+            codeLines.push(line);
+          } else {
+            let l = escapeHtml(line);
+            // Inline code
+            l = l.replace(/\`([^\`]+)\`/g, '<code>$1</code>');
+            // Bold
+            l = l.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+            // Italic
+            l = l.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+            // Headers
+            if (l.startsWith('### ')) { html += '<p><strong>' + l.slice(4) + '</strong></p>'; continue; }
+            if (l.startsWith('## ')) { html += '<p><strong>' + l.slice(3) + '</strong></p>'; continue; }
+            if (l.startsWith('# ')) { html += '<p><strong>' + l.slice(2) + '</strong></p>'; continue; }
+            // List items
+            if (l.startsWith('- ') || l.startsWith('* ')) { html += '<p>&bull; ' + l.slice(2) + '</p>'; continue; }
+            // Numbered list
+            if (/^\\d+\\.\\s/.test(l)) { html += '<p>' + l + '</p>'; continue; }
+            // Blank line = spacing
+            if (l.trim() === '') { html += '<p></p>'; continue; }
+            html += '<p>' + l + '</p>';
+          }
+        }
+        if (inCode && codeLines.length) {
+          html += '<pre><code>' + escapeHtml(codeLines.join('\\n')) + '</code></pre>';
+        }
+        return html;
+      }
+
+      // ----------------------------------------------------------------
       // Helpers
       // ----------------------------------------------------------------
-      function hideWelcome() {
-        if (welcomeEl) welcomeEl.style.display = 'none';
-      }
-
-      function scrollToBottom() {
-        messagesEl.scrollTop = messagesEl.scrollHeight;
-      }
-
-      function autoResizeInput() {
-        promptInput.style.height = 'auto';
-        promptInput.style.height = Math.min(promptInput.scrollHeight, 120) + 'px';
-      }
+      function hideWelcome() { if (welcomeEl) welcomeEl.style.display = 'none'; }
+      function scrollToBottom() { messagesEl.scrollTop = messagesEl.scrollHeight; }
+      function autoResizeInput() { promptInput.style.height = 'auto'; promptInput.style.height = Math.min(promptInput.scrollHeight, 120) + 'px'; }
 
       function escapeHtml(str) {
-        if (!str) return '';
-        return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        if (str == null) return '';
+        return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      }
+      function escapeAttr(str) {
+        if (str == null) return '';
+        return String(str).replace(/"/g,'&quot;').replace(/'/g,'&#39;');
       }
 
       // ----------------------------------------------------------------
@@ -823,47 +875,63 @@ export class ComposerViewProvider implements vscode.WebviewViewProvider {
           case 'addMessage':
             if (msg.message.role === 'assistant') {
               appendStreamStart();
-              appendTextToStream(msg.message.content);
+              appendTextToStream(msg.message.content || '');
               isStreaming = false;
               currentStreamEl = null;
             } else {
               appendMessage(msg.message.role, msg.message.content, msg.message.contextFiles);
             }
             break;
+
           case 'streamChunk':
             appendStreamChunk(msg.chunk);
             break;
+
           case 'updateConnectionStatus':
             statusDot.classList.toggle('connected', msg.connected);
-            statusText.textContent = msg.connected ? 'Connected' : 'Disconnected';
-            // Hide connect buttons when connected, show when disconnected
-            if (connectQwenBtn) {
-              connectQwenBtn.style.display = msg.connected ? 'none' : 'inline-block';
-            }
-            if (browseRegistryBtn) {
-              browseRegistryBtn.style.display = msg.connected ? 'none' : 'inline-block';
-            }
+            statusText.textContent = msg.connected
+              ? ('Connected' + (msg.agentName ? ' \u2014 ' + msg.agentName : ''))
+              : 'Disconnected';
+            if (connectQwenBtn) connectQwenBtn.style.display = msg.connected ? 'none' : 'inline-block';
+            if (browseRegistryBtn) browseRegistryBtn.style.display = msg.connected ? 'none' : 'inline-block';
             break;
+
           case 'fileSearchResults':
             showFileSearch(msg.files);
             break;
-          case 'threadCleared':
-            messagesEl.innerHTML = '';
-            if (welcomeEl) {
-              messagesEl.appendChild(welcomeEl);
-              welcomeEl.style.display = '';
-            }
-            contextFiles = [];
+
+          case 'addContextFile':
+            contextFiles.push(msg.file);
             renderPills();
             break;
-          case 'error':
+
+          case 'modelChanged':
+            if (modelInput) modelInput.value = msg.modelId;
+            break;
+
+          case 'modeChanged':
+            currentMode = msg.mode;
+            document.querySelectorAll('.mode-pill').forEach(b => b.classList.toggle('active', b.dataset.mode === msg.mode));
+            break;
+
+          case 'threadCleared':
+            messagesEl.innerHTML = '';
+            if (welcomeEl) { messagesEl.appendChild(welcomeEl); welcomeEl.style.display = ''; }
+            contextFiles = [];
+            renderPills();
+            currentStreamEl = null;
+            isStreaming = false;
+            break;
+
+          case 'error': {
             const errEl = document.createElement('div');
             errEl.className = 'message assistant';
             errEl.style.borderColor = 'var(--vscode-testing-iconFailed)';
-            errEl.textContent = msg.message;
+            errEl.textContent = '⚠️ ' + msg.message;
             messagesEl.appendChild(errEl);
             scrollToBottom();
             break;
+          }
         }
       });
 
