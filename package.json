@@ -1,0 +1,154 @@
+{
+  "name": "acp-composer",
+  "displayName": "ACP Composer",
+  "description": "A Cursor-like agentic experience for VS Code via the Agent Client Protocol",
+  "version": "0.1.0",
+  "publisher": "acp",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "AI",
+    "Chat",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "ai",
+    "agent",
+    "acp",
+    "composer",
+    "copilot"
+  ],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "acp-composer",
+          "title": "ACP Composer",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "acp-composer": [
+        {
+          "type": "webview",
+          "id": "acpComposer.chatView",
+          "name": "Composer"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "acpComposer.focus",
+        "title": "ACP Composer: Focus"
+      },
+      {
+        "command": "acpComposer.newThread",
+        "title": "ACP Composer: New Thread"
+      },
+      {
+        "command": "acpComposer.connectServer",
+        "title": "ACP Composer: Connect to Server"
+      },
+      {
+        "command": "acpComposer.disconnectServer",
+        "title": "ACP Composer: Disconnect from Server"
+      },
+      {
+        "command": "acpComposer.connectQwenCode",
+        "title": "ACP Composer: Connect to Qwen Code CLI"
+      },
+      {
+        "command": "acpComposer.connectRegistryAgent",
+        "title": "ACP Composer: Connect to Registry Agent"
+      },
+      {
+        "command": "acpComposer.browseRegistry",
+        "title": "ACP Composer: Browse ACP Registry"
+      },
+      {
+        "command": "acpComposer.applyDiff",
+        "title": "ACP Composer: Apply Suggested Change"
+      },
+      {
+        "command": "acpComposer.rejectDiff",
+        "title": "ACP Composer: Reject Suggested Change"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "acpComposer.focus",
+        "key": "cmd+i",
+        "mac": "cmd+i",
+        "win": "ctrl+i",
+        "linux": "ctrl+i"
+      }
+    ],
+    "configuration": {
+      "title": "ACP Composer",
+      "properties": {
+        "acpComposer.serverUrl": {
+          "type": "string",
+          "default": "ws://localhost:3000",
+          "description": "WebSocket URL of the ACP server."
+        },
+        "acpComposer.qwenCodePath": {
+          "type": "string",
+          "default": "qwen",
+          "description": "Path or command to run Qwen Code CLI (e.g., 'qwen' or full path to binary)."
+        },
+        "acpComposer.qwenCodeArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Additional arguments to pass to Qwen Code CLI when starting in ACP mode."
+        },
+        "acpComposer.executionPolicy": {
+          "type": "string",
+          "enum": [
+            "strict",
+            "autonomous"
+          ],
+          "default": "autonomous",
+          "description": "Execution policy for agent tool calls.\n- strict: Every tool call requires explicit approval.\n- autonomous: Read-only tools auto-approved; write tools require a click.",
+          "enumDescriptions": [
+            "Every tool call requires explicit approval.",
+            "Read-only tools are auto-approved; write/destructive tools require a click."
+          ]
+        },
+        "acpComposer.showThoughts": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show agent thought chain by default."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "webpack --mode production",
+    "dev": "webpack --mode development --watch",
+    "lint": "eslint src --ext ts",
+    "compile": "webpack --mode development"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@types/ws": "^8.18.1",
+    "@typescript-eslint/eslint-plugin": "^6.18.0",
+    "@typescript-eslint/parser": "^6.18.0",
+    "eslint": "^8.56.0",
+    "ts-loader": "^9.5.1",
+    "typescript": "^5.3.3",
+    "webpack": "^5.89.0",
+    "webpack-cli": "^5.1.4"
+  },
+  "dependencies": {
+    "ws": "^8.16.0"
+  }
+}
