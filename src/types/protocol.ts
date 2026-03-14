@@ -5,21 +5,21 @@
 // ---------------------------------------------------------------------------
 
 /** Execution policy configured by the user. */
-export type ExecutionPolicy = "strict" | "autonomous";
+export type ExecutionPolicy = 'strict' | 'autonomous';
 
 // ---------------------------------------------------------------------------
 // JSON‑RPC envelope
 // ---------------------------------------------------------------------------
 
 export interface JsonRpcRequest {
-  jsonrpc: "2.0";
+  jsonrpc: '2.0';
   id: string | number;
   method: string;
   params?: unknown;
 }
 
 export interface JsonRpcResponse {
-  jsonrpc: "2.0";
+  jsonrpc: '2.0';
   id: string | number | null;
   result?: unknown;
   error?: JsonRpcError;
@@ -32,7 +32,7 @@ export interface JsonRpcError {
 }
 
 export interface JsonRpcNotification {
-  jsonrpc: "2.0";
+  jsonrpc: '2.0';
   method: string;
   params?: unknown;
 }
@@ -48,14 +48,14 @@ export type JsonRpcMessage =
 
 /** A thought / reasoning step emitted by the agent. */
 export interface AcpThought {
-  type: "thought";
+  type: 'thought';
   content: string;
   timestamp: number;
 }
 
 /** A tool call requested by the agent. */
 export interface AcpToolCall {
-  type: "call_tool";
+  type: 'call_tool';
   id: string;
   name: string;
   displayName?: string;
@@ -66,7 +66,7 @@ export interface AcpToolCall {
 
 /** Result of a tool execution sent back to the server. */
 export interface AcpToolResult {
-  type: "tool_result";
+  type: 'tool_result';
   callId: string;
   result?: unknown;
   error?: string;
@@ -74,7 +74,7 @@ export interface AcpToolResult {
 
 /** A file change suggested by the agent. */
 export interface AcpFileChange {
-  type: "file_change";
+  type: 'file_change';
   id: string;
   filePath: string;
   originalContent: string;
@@ -84,7 +84,7 @@ export interface AcpFileChange {
 
 /** A text / markdown response chunk from the agent. */
 export interface AcpTextChunk {
-  type: "text";
+  type: 'text';
   content: string;
   /** true when this is the final chunk of the current response. */
   done?: boolean;
@@ -92,7 +92,7 @@ export interface AcpTextChunk {
 
 /** Agent status / progress update. */
 export interface AcpStatusUpdate {
-  type: "status";
+  type: 'status';
   message: string;
   progress?: number; // 0‑100
 }
@@ -112,7 +112,7 @@ export type AcpStreamMessage =
 
 export interface ChatMessage {
   id: string;
-  role: "user" | "assistant";
+  role: 'user' | 'assistant';
   content: string;
   timestamp: number;
   /** Attached context files (@ mentions). */
@@ -159,25 +159,25 @@ export interface WorkspaceFileEntry {
 
 /** Messages sent FROM the webview TO the extension host. */
 export type WebviewToExtensionMessage =
-  | { command: "sendMessage"; text: string; contextFiles: ContextFile[] }
-  | { command: "approveToolCall"; callId: string }
-  | { command: "rejectToolCall"; callId: string }
-  | { command: "applyFileChange"; changeId: string }
-  | { command: "rejectFileChange"; changeId: string }
-  | { command: "newThread" }
-  | { command: "requestFileSearch"; query: string }
-  | { command: "ready" }
-  | { command: "connectQwenCode" }
-  | { command: "browseRegistry" };
+  | { command: 'sendMessage'; text: string; contextFiles: ContextFile[] }
+  | { command: 'approveToolCall'; callId: string }
+  | { command: 'rejectToolCall'; callId: string }
+  | { command: 'applyFileChange'; changeId: string }
+  | { command: 'rejectFileChange'; changeId: string }
+  | { command: 'newThread' }
+  | { command: 'requestFileSearch'; query: string }
+  | { command: 'ready' }
+  | { command: 'connectQwenCode' }
+  | { command: 'browseRegistry' };
 
 /** Messages sent FROM the extension host TO the webview. */
 export type ExtensionToWebviewMessage =
-  | { type: "addMessage"; message: ChatMessage }
-  | { type: "streamChunk"; chunk: AcpStreamMessage }
-  | { type: "updateConnectionStatus"; connected: boolean }
-  | { type: "fileSearchResults"; files: WorkspaceFileEntry[] }
-  | { type: "threadCleared" }
-  | { type: "error"; message: string };
+  | { type: 'addMessage'; message: ChatMessage }
+  | { type: 'streamChunk'; chunk: AcpStreamMessage }
+  | { type: 'updateConnectionStatus'; connected: boolean }
+  | { type: 'fileSearchResults'; files: WorkspaceFileEntry[] }
+  | { type: 'threadCleared' }
+  | { type: 'error'; message: string };
 
 // ---------------------------------------------------------------------------
 // Diff / Apply model
@@ -189,7 +189,7 @@ export interface PendingDiff {
   originalContent: string;
   proposedContent: string;
   description?: string;
-  status: "pending" | "applied" | "rejected";
+  status: 'pending' | 'applied' | 'rejected';
 }
 
 // ---------------------------------------------------------------------------
@@ -203,12 +203,12 @@ export interface PendingToolCall {
   parameters: Record<string, unknown>;
   readOnly: boolean;
   status:
-    | "pending"
-    | "approved"
-    | "rejected"
-    | "running"
-    | "completed"
-    | "failed";
+    | 'pending'
+    | 'approved'
+    | 'rejected'
+    | 'running'
+    | 'completed'
+    | 'failed';
   result?: unknown;
   error?: string;
 }
@@ -225,16 +225,29 @@ export interface AcpRegistryAgent {
   homepage?: string;
   repository?: string;
   icon?: string;
-  distribution: {
-    type: string;
-    identifier?: string;
-    url?: string;
-    command?: string;
-    args?: string[];
+  distribution?: {
+    npx?: {
+      package: string;
+      args?: string[];
+      env?: Record<string, string>;
+    };
+    uvx?: {
+      package: string;
+      args?: string[];
+    };
+    binary?: {
+      [platform: string]: {
+        archive: string;
+        cmd: string;
+        args?: string[];
+      };
+    };
   };
 }
 
 export interface AcpRegistryData {
   agents: AcpRegistryAgent[];
+  extensions?: any[];
+  version?: string;
   lastUpdated?: string;
 }

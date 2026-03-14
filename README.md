@@ -157,6 +157,20 @@ pnpm run lint
 2. The extension will activate automatically
 3. Use the Composer view to test functionality
 
+### Quick Install
+
+Use the provided script to build and install the extension:
+
+```bash
+./scripts/install.sh
+```
+
+This will:
+1. Install dependencies with pnpm
+2. Build the extension
+3. Package it as a `.vsix` file
+4. Install it to VS Code
+
 ## License
 
 [Specify your license here]

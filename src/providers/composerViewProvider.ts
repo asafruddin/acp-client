@@ -126,11 +126,18 @@ export class ComposerViewProvider implements vscode.WebviewViewProvider {
       font-size: 11px;
       color: var(--vscode-descriptionForeground);
       border-bottom: 1px solid var(--vscode-sideBar-border, var(--vscode-panel-border));
+      gap: 8px;
     }
     .status-left {
       display: flex;
       align-items: center;
       gap: 6px;
+      flex-shrink: 0;
+    }
+    #connectButtons {
+      display: flex;
+      gap: 6px;
+      flex-shrink: 0;
     }
     .status-dot {
       width: 8px; height: 8px; border-radius: 50%;
@@ -829,8 +836,12 @@ export class ComposerViewProvider implements vscode.WebviewViewProvider {
           case 'updateConnectionStatus':
             statusDot.classList.toggle('connected', msg.connected);
             statusText.textContent = msg.connected ? 'Connected' : 'Disconnected';
+            // Hide connect buttons when connected, show when disconnected
             if (connectQwenBtn) {
               connectQwenBtn.style.display = msg.connected ? 'none' : 'inline-block';
+            }
+            if (browseRegistryBtn) {
+              browseRegistryBtn.style.display = msg.connected ? 'none' : 'inline-block';
             }
             break;
           case 'fileSearchResults':
