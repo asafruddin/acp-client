@@ -132,23 +132,23 @@ ACP Composer brings AI-powered coding assistance to VS Code by connecting to ACP
 
 ```bash
 # Install dependencies
-npm install
+pnpm install
 ```
 
 ### Build
 
 ```bash
 # Production build
-npm run build
+pnpm run build
 
 # Development build with watch
-npm run dev
+pnpm run dev
 ```
 
 ### Linting
 
 ```bash
-npm run lint
+pnpm run lint
 ```
 
 ### Debugging

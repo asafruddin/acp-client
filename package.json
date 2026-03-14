@@ -129,8 +129,9 @@
       }
     }
   },
+  "packageManager": "pnpm@8.15.0",
   "scripts": {
-    "vscode:prepublish": "npm run build",
+    "vscode:prepublish": "pnpm run build",
     "build": "webpack --mode production",
     "dev": "webpack --mode development --watch",
     "lint": "eslint src --ext ts",
